@@ -1,3 +1,4 @@
+// app/signup/page.jsx
 'use client'
 
 import { useState } from 'react'
@@ -5,118 +6,96 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export default function SignUpPage() {
+  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState(null)
-  const router = useRouter()
 
   const handleSignUp = async (e) => {
     e.preventDefault()
-    setError(null)
+    setLoading(true)
     setMessage(null)
 
-    if (password !== confirm) {
-      setError('Passwords do not match.')
-      return
-    }
+    // build a redirect URL to your login page on the current origin
+    const redirectTo = `${window.location.origin}/login`
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    })
+    const { error } = await supabase.auth.signUp(
+      { email, password },
+      { redirectTo }
+    )
 
     if (error) {
-      setError(error.message)
+      setMessage({ type: 'danger', text: error.message })
     } else {
-      setMessage(
-        '🎉 Check your email for a confirmation link before logging in.'
-      )
-      // Optional: redirect you can do after a delay, e.g.:
-      // setTimeout(() => router.push('/login'), 3000)
+      setMessage({
+        type: 'success',
+        text: `Check your email for a confirmation link—we'll redirect you to login once confirmed.`,
+      })
     }
+
+    setLoading(false)
   }
 
   return (
-    <div className="d-flex justify-content-center align-items-center vh-100 bg-light">
-      <div
-        className="card shadow-sm p-4"
-        style={{ width: '100%', maxWidth: '360px' }}
-      >
-        <h2 className="card-title text-center mb-4">Sign Up</h2>
+    <div className="container py-5">
+      <h1>Create an Account</h1>
 
-        {error && (
-          <div className="alert alert-danger py-1" role="alert">
-            {error}
-          </div>
-        )}
-        {message && (
-          <div className="alert alert-success py-1" role="alert">
-            {message}
-          </div>
-        )}
-
-        <form onSubmit={handleSignUp}>
-          <div className="mb-3">
-            <label htmlFor="email" className="form-label fw-semibold">
-              Email address
-            </label>
-            <input
-              type="email"
-              id="email"
-              className="form-control"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="mb-3">
-            <label htmlFor="password" className="form-label fw-semibold">
-              Password
-            </label>
-            <input
-              type="password"
-              id="password"
-              className="form-control"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-            />
-          </div>
-
-          <div className="mb-4">
-            <label htmlFor="confirm" className="form-label fw-semibold">
-              Confirm Password
-            </label>
-            <input
-              type="password"
-              id="confirm"
-              className="form-control"
-              placeholder="••••••••"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-            />
-          </div>
-
-          <button type="submit" className="btn btn-success w-100">
-            Create Account
-          </button>
-        </form>
-
-        <div className="text-center mt-3">
-          <button
-            className="btn btn-link"
-            onClick={() => router.push('/login')}
-          >
-            ← Back to Login
-          </button>
+      {message && (
+        <div className={`alert alert-${message.type}`} role="alert">
+          {message.text}
         </div>
+      )}
+
+      <form onSubmit={handleSignUp} className="mt-4" style={{ maxWidth: 400 }}>
+        <div className="mb-3">
+          <label htmlFor="email" className="form-label">
+            Email address
+          </label>
+          <input
+            type="email"
+            id="email"
+            className="form-control"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={loading}
+            required
+          />
+        </div>
+
+        <div className="mb-3">
+          <label htmlFor="password" className="form-label">
+            Password
+          </label>
+          <input
+            type="password"
+            id="password"
+            className="form-control"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={loading}
+            required
+          />
+        </div>
+
+        <button
+          type="submit"
+          className="btn btn-primary w-100"
+          disabled={loading}
+        >
+          {loading ? 'Creating…' : 'Create Account'}
+        </button>
+      </form>
+
+      <div className="mt-3">
+        <button
+          className="btn btn-link"
+          onClick={() => router.push('/login')}
+        >
+          Already have an account? Sign in
+        </button>
       </div>
     </div>
   )
