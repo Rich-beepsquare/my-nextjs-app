@@ -11,6 +11,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
+
 export async function POST(request) {
   // Instantiate OpenAI inside the handler
   const openai = new OpenAI({
