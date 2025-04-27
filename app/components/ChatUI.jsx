@@ -7,12 +7,12 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 export default function ChatUI() {
-  const [showNotice, setShowNotice] = useState(true)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
 
+  // 1) Load history
   useEffect(() => {
     ;(async () => {
       const { data, error } = await supabase
@@ -33,20 +33,24 @@ export default function ChatUI() {
     })()
   }, [])
 
+  // 2) Scroll to bottom on new message or loading state
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, loading])
 
+  // 3) Auto-resize textarea
   const resize = (el) => {
     el.style.height = 'auto'
     el.style.height = el.scrollHeight + 'px'
   }
 
+  // 4) Send & receive
   const handleSubmit = async (e) => {
     e.preventDefault()
     const text = input.trim()
     if (!text) return
 
+    // Fetch current user
     const {
       data: { user },
       error: userErr,
@@ -56,6 +60,7 @@ export default function ChatUI() {
       return
     }
 
+    // Append user message
     const newMsgs = [
       ...messages,
       { role: 'user', content: text, user_id: user.id },
@@ -73,11 +78,11 @@ export default function ChatUI() {
       if (!res.ok) throw new Error(`Status ${res.status}`)
 
       const { message: assistantMsg } = await res.json()
-      setMessages([...newMsgs, assistantMsg])
+      setMessages((msgs) => [...msgs, assistantMsg])
     } catch (err) {
       console.error('Chat error:', err)
-      setMessages([
-        ...newMsgs,
+      setMessages((msgs) => [
+        ...msgs,
         { role: 'assistant', content: 'Oops, something went wrong.' },
       ])
     } finally {
@@ -89,7 +94,8 @@ export default function ChatUI() {
     <div className="chat-container d-flex flex-column">
       <div className="chat-header">AI Assistant</div>
 
-      <div className="chat-body">
+      {/* Chat messages */}
+      <div className="chat-body flex-grow-1 overflow-auto mb-3">
         {messages.map((m, i) => (
           <div key={i} className={`bubble ${m.role}`}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -97,37 +103,57 @@ export default function ChatUI() {
             </ReactMarkdown>
           </div>
         ))}
+
+        {/* Typing indicator bubble */}
+        {loading && (
+          <div className="bubble assistant typing d-flex align-items-center">
+            <div
+              className="spinner-border spinner-border-sm text-primary me-2"
+              role="status"
+            >
+              <span className="visually-hidden">Loading…</span>
+            </div>
+            <em>Typing…</em>
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
-      {/* 🛈 Privacy Notice moved to bottom of chat window */}
-      {showNotice && (
-        <div className="alert alert-info alert-dismissible fade show mx-3 my-2" role="alert">
-          <strong>Your privacy is protected:</strong>{' '}
-          Messages you send & receive are <em>not</em> used to train OpenAI’s public models.
-          <button
-            type="button"
-            className="btn-close"
-            aria-label="Close"
-            onClick={() => setShowNotice(false)}
-          />
-        </div>
-      )}
-
-      <form className="chat-input d-flex p-3" onSubmit={handleSubmit}>
+      {/* Input form */}
+      <form className="chat-input d-flex" onSubmit={handleSubmit}>
         <textarea
           className="flex-grow-1 form-control"
-          placeholder="Type a message..."
+          placeholder="Type a message…"
           value={input}
           onChange={(e) => {
             setInput(e.target.value)
             resize(e.target)
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              handleSubmit(e)
+            }
+          }}
           disabled={loading}
           rows={1}
         />
-        <button type="submit" className="btn btn-primary ms-2" disabled={loading}>
-          {loading ? '…' : 'Send'}
+
+        <button
+          type="submit"
+          className="btn btn-primary ms-2"
+          disabled={loading}
+        >
+          {loading ? (
+            <span
+              className="spinner-border spinner-border-sm"
+              role="status"
+              aria-hidden="true"
+            />
+          ) : (
+            'Send'
+          )}
         </button>
       </form>
     </div>
