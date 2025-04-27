@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import ChatUI from '@/components/ChatUI'    // make sure this path matches your file structure
 
 export default function HomePage() {
   const [user, setUser] = useState(null)
@@ -33,6 +34,43 @@ export default function HomePage() {
       </div>
     )
   }
+
+  const firstName = user.user_metadata.first_name || ''
+  const lastName  = user.user_metadata.last_name  || ''
+  const email     = user.email
+
+  return (
+    <div className="container py-5">
+      {/* Greeting */}
+      <h1>
+        Welcome, {firstName} {lastName}!
+      </h1>
+      <p className="text-muted small">
+        Logged in as {email}
+      </p>
+
+      <div className="my-4">
+        <button
+          className="btn btn-secondary me-2"
+          onClick={() => router.push('/profile')}
+        >
+          Go to Profile
+        </button>
+        <button
+          className="btn btn-outline-danger"
+          onClick={handleSignOut}
+        >
+          Sign Out
+        </button>
+      </div>
+
+      {/* ====== Chat window goes here ====== */}
+      <ChatUI />
+
+    </div>
+  )
+}
+
 
   const firstName = user.user_metadata.first_name || ''
   const lastName  = user.user_metadata.last_name  || ''
