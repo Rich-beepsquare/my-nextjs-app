@@ -1,10 +1,10 @@
-// app/page.jsx
+// app/page.js
 'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import ChatUI from '@/components/ChatUI'    // make sure this path matches your file structure
+import ChatUI from '@/components/ChatUI'
 
 export default function HomePage() {
   const [user, setUser] = useState(null)
@@ -36,15 +36,11 @@ export default function HomePage() {
   }
 
   const firstName = user.user_metadata.first_name || ''
-  const lastName  = user.user_metadata.last_name  || ''
   const email     = user.email
 
   return (
     <div className="container py-5">
-      {/* Greeting */}
-      <h1>
-        Welcome, {firstName} {lastName}!
-      </h1>
+      <h1>Welcome {firstName}</h1>
       <p className="text-muted small">
         Logged in as {email}
       </p>
@@ -64,37 +60,8 @@ export default function HomePage() {
         </button>
       </div>
 
-      {/* ====== Chat window goes here ====== */}
+      {/* Chat window */}
       <ChatUI />
-
-    </div>
-  )
-}
-
-
-  const firstName = user.user_metadata.first_name || ''
-  const lastName  = user.user_metadata.last_name  || ''
-  const email     = user.email
-
-  return (
-    <div className="container py-5">
-      <h1>
-        Welcome, {firstName} {lastName}!
-      </h1>
-      <p className="text-muted small">
-        Logged in as {email}
-      </p>
-
-      <div className="mt-4">
-        <button className="btn btn-secondary me-2" onClick={() => router.push('/profile')}>
-          Go to Profile
-        </button>
-        <button className="btn btn-outline-danger" onClick={handleSignOut}>
-          Sign Out
-        </button>
-      </div>
-
-      {/* … your ChatUI or other content goes here … */}
     </div>
   )
 }
