@@ -1,55 +1,62 @@
+// app/page.jsx
 'use client'
+
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import ChatUI from '@/components/ChatUI'
 
 export default function HomePage() {
   const [user, setUser] = useState(null)
   const router = useRouter()
 
   useEffect(() => {
-    ;(async () => {
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser()
-      setUser(currentUser)
-    })()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user)
+    })
   }, [])
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   if (!user) {
     return (
-      <div className="d-flex justify-content-center align-items-center vh-100">
+      <div className="container text-center py-5">
+        <h1>Welcome to the Home Page</h1>
         <button
           className="btn btn-primary"
           onClick={() => router.push('/login')}
         >
           Login
         </button>
-        <button className="btn btn-link" onClick={() => router.push('/signup')}>
-  Create an Account
-</button>
       </div>
     )
   }
 
+  const firstName = user.user_metadata.first_name || ''
+  const lastName  = user.user_metadata.last_name  || ''
+  const email     = user.email
+
   return (
-    <div className="container py-4">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <h1>Welcome, {user.email}</h1>
-        <button
-          className="btn btn-danger"
-          onClick={async () => {
-            await supabase.auth.signOut()
-            router.push('/login')
-          }}
-        >
+    <div className="container py-5">
+      <h1>
+        Welcome, {firstName} {lastName}!
+      </h1>
+      <p className="text-muted small">
+        Logged in as {email}
+      </p>
+
+      <div className="mt-4">
+        <button className="btn btn-secondary me-2" onClick={() => router.push('/profile')}>
+          Go to Profile
+        </button>
+        <button className="btn btn-outline-danger" onClick={handleSignOut}>
           Sign Out
         </button>
       </div>
 
-      <ChatUI />
+      {/* … your ChatUI or other content goes here … */}
     </div>
   )
 }
-

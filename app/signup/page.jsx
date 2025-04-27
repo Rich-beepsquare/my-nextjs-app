@@ -7,22 +7,29 @@ import { supabase } from '@/lib/supabase'
 
 export default function SignUpPage() {
   const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState(null)
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName]   = useState('')
+  const [email, setEmail]         = useState('')
+  const [password, setPassword]   = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [message, setMessage]     = useState(null)
 
   const handleSignUp = async (e) => {
     e.preventDefault()
     setLoading(true)
     setMessage(null)
 
-    // build a redirect URL to your login page on the current origin
-    const redirectTo = `${window.location.origin}/login`
-
+    const origin = window.location.origin
+    // supabase-js v2: pass metadata in `options.data` and redirect
     const { error } = await supabase.auth.signUp(
-      { email, password },
-      { redirectTo }
+      {
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${origin}/login`,
+          data: { first_name: firstName, last_name: lastName }
+        }
+      }
     )
 
     if (error) {
@@ -30,7 +37,7 @@ export default function SignUpPage() {
     } else {
       setMessage({
         type: 'success',
-        text: `Check your email for a confirmation link—we'll redirect you to login once confirmed.`,
+        text: `Almost there! Check your inbox for a confirmation link.`
       })
     }
 
@@ -38,8 +45,8 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="container py-5">
-      <h1>Create an Account</h1>
+    <div className="container py-5" style={{ maxWidth: 400 }}>
+      <h2>Create an Account</h2>
 
       {message && (
         <div className={`alert alert-${message.type}`} role="alert">
@@ -47,34 +54,54 @@ export default function SignUpPage() {
         </div>
       )}
 
-      <form onSubmit={handleSignUp} className="mt-4" style={{ maxWidth: 400 }}>
+      <form onSubmit={handleSignUp} className="mt-4">
         <div className="mb-3">
-          <label htmlFor="email" className="form-label">
-            Email address
-          </label>
+          <label htmlFor="firstName" className="form-label">First name</label>
           <input
-            type="email"
-            id="email"
+            id="firstName"
             className="form-control"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={firstName}
+            onChange={e => setFirstName(e.target.value)}
             disabled={loading}
             required
           />
         </div>
 
         <div className="mb-3">
-          <label htmlFor="password" className="form-label">
-            Password
-          </label>
+          <label htmlFor="lastName" className="form-label">Last name</label>
           <input
-            type="password"
+            id="lastName"
+            className="form-control"
+            value={lastName}
+            onChange={e => setLastName(e.target.value)}
+            disabled={loading}
+            required
+          />
+        </div>
+
+        <div className="mb-3">
+          <label htmlFor="email" className="form-label">Email address</label>
+          <input
+            id="email"
+            type="email"
+            className="form-control"
+            placeholder="you@example.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            disabled={loading}
+            required
+          />
+        </div>
+
+        <div className="mb-3">
+          <label htmlFor="password" className="form-label">Password</label>
+          <input
             id="password"
+            type="password"
             className="form-control"
             placeholder="••••••••"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={e => setPassword(e.target.value)}
             disabled={loading}
             required
           />
@@ -89,14 +116,14 @@ export default function SignUpPage() {
         </button>
       </form>
 
-      <div className="mt-3">
+      <p className="mt-3 text-center">
         <button
           className="btn btn-link"
           onClick={() => router.push('/login')}
         >
           Already have an account? Sign in
         </button>
-      </div>
+      </p>
     </div>
   )
 }
