@@ -122,7 +122,7 @@ export default function OrgDashboard() {
 
   return (
     <div className="container py-5">
-      <h2 className="mb-4">{orgName || 'Organization'} Dashboard</h2>
+      <h2 className="mb-4">{orgName || 'Organisation'} Dashboard</h2>
 
       <h4>
         {title} <span className="badge bg-secondary">{displayed.length}</span>
