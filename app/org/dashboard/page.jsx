@@ -7,15 +7,18 @@ import { supabase }            from '../../lib/supabase'
 import { useOrg }              from '../../OrgProvider'
 
 export default function OrgDashboard() {
-  const router   = useRouter()
-  const orgId    = useOrg()
+  const router         = useRouter()
+  const orgId          = useOrg()
 
-  const [orgName, setOrgName]           = useState('')
-  const [members, setMembers]           = useState([])
-  const [userRole, setUserRole]         = useState(null)
-  const [inviteEmail, setInviteEmail]   = useState('')
-  const [inviteRole, setInviteRole]     = useState('member')
-  const [inviteStatus, setInviteStatus] = useState('')
+  const [orgName, setOrgName]             = useState('')
+  const [members, setMembers]             = useState([])
+  const [userRole, setUserRole]           = useState(null)
+  const [currentUserId, setCurrentUserId] = useState(null)
+
+  // Invite form state
+  const [inviteEmail, setInviteEmail]     = useState('')
+  const [inviteRole, setInviteRole]       = useState('member')
+  const [inviteStatus, setInviteStatus]   = useState('')
 
   // 1) Fetch org name
   useEffect(() => {
@@ -26,62 +29,65 @@ export default function OrgDashboard() {
       .eq('id', orgId)
       .maybeSingle()
       .then(({ data, error }) => {
-        if (error) {
-          console.error('Error loading org name:', error)
-          } else if (data && data.name) {
-          setOrgName(data.name)
-          } else {
-          console.warn('No organization record for id', orgId)
-           }
+        if (error) console.error('Error loading org name:', error)
+        else if (data?.name) setOrgName(data.name)
+        else console.warn('No organization record for id', orgId)
       })
   }, [orgId])
 
-  // 2) Fetch my role & all members + their emails
+  // 2) Fetch current user, my role & all members (+ their emails)
   useEffect(() => {
     if (!orgId) return
 
     ;(async () => {
-      // a) ensure logged in
-      const { data: sessionData } = await supabase.auth.getUser()
-      const user = sessionData.user
-      if (!user) return router.push('/login')
+      // a) who am I?
+      const {
+        data: { user },
+        error: userErr
+      } = await supabase.auth.getUser()
+      if (userErr || !user) return router.push('/login')
+      setCurrentUserId(user.id)
 
-      // b) get my role
+      // b) my org_members record
       const { data: me, error: meErr } = await supabase
         .from('org_members')
         .select('role')
         .eq('org_id', orgId)
         .eq('user_id', user.id)
         .single()
-      if (meErr) console.error(meErr)
+      if (meErr) console.error('Error loading my role:', meErr)
       else setUserRole(me.role)
 
-      // c) get all members
+      // c) all org_members
       const { data: rows, error: membersErr } = await supabase
         .from('org_members')
         .select('user_id, role, joined_at')
         .eq('org_id', orgId)
       if (membersErr) {
-        console.error(membersErr)
+        console.error('Error loading members:', membersErr)
         return
       }
 
-      // d) fetch their emails from profiles
+      // d) batch-fetch profiles
       const userIds = rows.map((r) => r.user_id)
       const { data: profiles, error: profilesErr } = await supabase
         .from('profiles')
         .select('id, email')
         .in('id', userIds)
       if (profilesErr) {
-        console.error(profilesErr)
+        console.error('Error loading profiles:', profilesErr)
         return
       }
 
-      // merge for display
+      // e) merge for display
       const merged = rows.map((r) => {
         const p = profiles.find((p) => p.id === r.user_id)
-        return { ...r, email: p?.email || '(no email)' }
+        return {
+          ...r,
+          email: p?.email ?? '(no email)',
+        }
       })
+
       setMembers(merged)
     })()
   }, [orgId, router])
@@ -105,12 +111,21 @@ export default function OrgDashboard() {
     }
   }
 
+  // 4) Decide what to show
+  const iAmMember = userRole === 'member'
+  const title     = iAmMember ? 'Organisation Admin(s)' : 'Members'
+
+  // filter: members → admins-only & drop self when I'm a member
+  const displayed = iAmMember
+    ? members.filter((m) => m.role === 'admin' && m.user_id !== currentUserId)
+    : members
+
   return (
     <div className="container py-5">
-      <h2>{orgName || 'Organization'} Dashboard</h2>
+      <h2 className="mb-4">{orgName || 'Organization'} Dashboard</h2>
 
-      <h4 className="mt-4">
-        Members <span className="badge bg-secondary">{members.length}</span>
+      <h4>
+        {title} <span className="badge bg-secondary">{displayed.length}</span>
       </h4>
 
       <table className="table mt-2">
@@ -122,10 +137,10 @@ export default function OrgDashboard() {
           </tr>
         </thead>
         <tbody>
-          {members.map((m) => (
+          {displayed.map((m) => (
             <tr key={m.user_id}>
               <td>{m.email}</td>
-              <td>{m.role}</td>
+              <td className="text-capitalize">{m.role}</td>
               <td>{new Date(m.joined_at).toLocaleString()}</td>
             </tr>
           ))}
@@ -135,7 +150,10 @@ export default function OrgDashboard() {
       {userRole === 'admin' && (
         <div className="mt-5">
           <h5>Invite New Member</h5>
-          <form className="row g-2 align-items-center" onSubmit={handleInvite}>
+          <form
+            className="row g-2 align-items-center"
+            onSubmit={handleInvite}
+          >
             <div className="col-auto">
               <input
                 type="email"
