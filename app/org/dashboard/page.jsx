@@ -7,175 +7,120 @@ import { useOrg } from '../../OrgProvider'
 
 export default function OrgDashboard() {
   const router = useRouter()
-  const orgId = useOrg()
+  const orgId   = useOrg()
 
-  const [members, setMembers]       = useState(null)
-  const [userRole, setUserRole]     = useState(null)
-  const [inviteEmail, setInviteEmail]   = useState('')
-  const [inviteRole, setInviteRole]     = useState('member')
-  const [inviteStatus, setInviteStatus] = useState(null)
+  const [orgName, setOrgName]   = useState('')
+  const [members, setMembers]   = useState([])
+  const [userRole, setUserRole] = useState(null)
 
-  // 1) Load current user's role in this org
+  // Fetch organization name
   useEffect(() => {
     if (!orgId) return
     ;(async () => {
-      // get current session user
+      const { data: org, error } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', orgId)
+        .maybeSingle()
+      if (error) {
+        console.error('❌ Error fetching org name:', error.message || error)
+        return
+      }
+      if (org) setOrgName(org.name)
+    })()
+  }, [orgId])
+
+  // Load my role & members, then profiles
+  useEffect(() => {
+    if (!orgId) return
+
+    ;(async () => {
+      // 1️⃣ Ensure user is signed in
       const {
         data: { user },
         error: sessionErr,
       } = await supabase.auth.getUser()
       if (sessionErr || !user) {
-        console.error('Not logged in', sessionErr)
+        console.error('🚨 Not logged in', sessionErr)
         router.push('/login')
         return
       }
 
-      // fetch this user's org_members row
+      // 2️⃣ Fetch my role
       const { data: me, error: meErr } = await supabase
         .from('org_members')
         .select('role')
         .eq('org_id', orgId)
         .eq('user_id', user.id)
         .single()
-
       if (meErr) {
-        console.error('Error loading your org role', meErr)
+        console.error('❌ Error fetching my role:', meErr.message || meErr)
       } else {
         setUserRole(me.role)
       }
-    })()
-  }, [orgId, router])
 
-  // 2) Load all members
-  useEffect(() => {
-    if (!orgId) return
-    ;(async () => {
-      const { data, error } = await supabase
+      // 3️⃣ Fetch org_members rows
+      const { data: rows, error: membersErr } = await supabase
         .from('org_members')
         .select('user_id, role, joined_at')
         .eq('org_id', orgId)
-
-      if (error) console.error('Error loading members', error)
-      else setMembers(data)
-    })()
-  }, [orgId])
-
-  // 3) Invite handler (same as before)
-  const handleInvite = async (e) => {
-    e.preventDefault()
-    setInviteStatus('loading')
-
-    try {
-      const res = await fetch('/api/org/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgId, email: inviteEmail, role: inviteRole }),
-      })
-      const body = await res.json()
-
-      if (!res.ok) {
-        if (res.status === 404 && body.error === 'NO_USER') {
-          setInviteStatus('no_user')
-          return
-        }
-        if (res.status === 409 && body.error === 'ALREADY_MEMBER') {
-          setInviteStatus('duplicate')
-          return
-        }
-        setInviteStatus('error')
+      if (membersErr) {
+        console.error('❌ Error fetching members:', membersErr.message || membersErr)
         return
       }
 
-      setInviteStatus('sent')
-      setInviteEmail('')
+      console.log('🟢 org_members rows:', rows)
 
-      // refresh members list
-      const { data, error } = await supabase
-        .from('org_members')
-        .select('user_id, role, joined_at')
-        .eq('org_id', orgId)
-      if (!error) setMembers(data)
-    } catch (err) {
-      console.error('Invite error:', err)
-      setInviteStatus('error')
-    }
-  }
+      // 4️⃣ Fetch matching profiles
+      const userIds = rows.map((r) => r.user_id)
+      const { data: profiles, error: profilesErr } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .in('id', userIds)
+      if (profilesErr) {
+        console.error('❌ Error fetching profiles:', profilesErr.message || profilesErr)
+        return
+      }
+
+      console.log('🟢 profiles rows:', profiles)
+
+      // 5️⃣ Merge them
+      const merged = rows.map((r) => {
+        const p = profiles.find((p) => p.id === r.user_id)
+        return {
+          ...r,
+          email: p?.email || '(no email)',
+        }
+      })
+
+      console.log('🟢 merged result:', merged)
+      setMembers(merged)
+    })()
+  }, [orgId, router])
 
   return (
     <div className="container py-5">
-      <h2>Organization Dashboard</h2>
+      <h2>{orgName || 'Organization'} Dashboard</h2>
 
-      {/* only show invite form when we know the user is an admin */}
-      {userRole === 'admin' && (
-        <form className="row g-2 align-items-end mb-4" onSubmit={handleInvite}>
-          <div className="col-auto">
-            <label className="form-label" htmlFor="inviteEmail">Email</label>
-            <input
-              id="inviteEmail"
-              type="email"
-              className="form-control"
-              placeholder="user@example.com"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="col-auto">
-            <label className="form-label" htmlFor="inviteRole">Role</label>
-            <select
-              id="inviteRole"
-              className="form-select"
-              value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value)}
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <div className="col-auto">
-            <button
-              type="submit"
-              className="btn btn-success"
-              disabled={inviteStatus === 'loading'}
-            >
-              {inviteStatus === 'loading' ? 'Inviting…' : 'Invite'}
-            </button>
-          </div>
-          <div className="col-auto">
-            {inviteStatus === 'sent'      && <span className="text-success">Invite sent!</span>}
-            {inviteStatus === 'no_user'   && <span className="text-warning">No user found—ask them to sign up first.</span>}
-            {inviteStatus === 'duplicate' && <span className="text-warning">User already a member.</span>}
-            {inviteStatus === 'error'     && <span className="text-danger">Failed to invite.</span>}
-          </div>
-        </form>
-      )}
-
-      {/* Members Table */}
-      {!orgId && <p>Loading your organization…</p>}
-      {orgId && members === null && <p>Loading members…</p>}
-      {orgId && members && (
-        <>
-          <h4>Members ({members.length})</h4>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>User ID</th>
-                <th>Role</th>
-                <th>Joined At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m) => (
-                <tr key={m.user_id}>
-                  <td>{m.user_id}</td>
-                  <td>{m.role}</td>
-                  <td>{new Date(m.joined_at).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
+      <h4>Members ({members.length})</h4>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Joined At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {members.map((m) => (
+            <tr key={m.user_id}>
+              <td>{m.email}</td>
+              <td>{m.role}</td>
+              <td>{new Date(m.joined_at).toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
