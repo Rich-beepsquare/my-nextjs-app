@@ -2,68 +2,36 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from './lib/supabase'
+import { supabase } from '@/lib/supabase'
 import ChatUI from '@/components/ChatUI'
 
 export default function HomePage() {
   const router = useRouter()
-
-  // user info
   const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName]   = useState('')
   const [email, setEmail]         = useState('')
-
-  // assistants
   const [assistants, setAssistants] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [loading, setLoading]       = useState(true)
 
   useEffect(() => {
     async function load() {
-      // 1) get session (so we have the JWT)
-      const {
-        data: { session },
-        error: sessionErr
-      } = await supabase.auth.getSession()
-      if (sessionErr || !session) {
-        router.push('/login')
-        return
-      }
+      const { data: { session }, error } = await supabase.auth.getSession()
+      if (error || !session) return router.push('/login')
 
-      // 2) pull out name/email
       const user = session.user
-      const meta = user.user_metadata || {}
-      const fn   = meta.first_name || ''
-      const ln   = meta.last_name  || ''
-      const em   = user.email || ''
-      if (fn) {
-        setFirstName(fn)
-        setLastName(ln)
-      } else if (em) {
-        setFirstName(em.split('@')[0])
-      }
-      setEmail(em)
+      setFirstName(user.user_metadata.first_name || user.email.split('@')[0])
+      setEmail(user.email)
 
-      // 3) fetch assistants with auth header
-      const orgId = meta.sub
       const token = session.access_token
-      try {
-        const res = await fetch(`/api/assistants?orgId=${orgId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (res.ok) {
-          const json = await res.json()
-          setAssistants(Array.isArray(json.assistants) ? json.assistants : [])
-        } else {
-          console.error('assistants fetch failed', res.status)
-        }
-      } catch (err) {
-        console.error('assistants fetch error', err)
+      const res = await fetch(`/api/assistants?orgId=${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const json = await res.json()
+        setAssistants(json.assistants || [])
       }
-
       setLoading(false)
     }
-
     load()
   }, [router])
 
@@ -72,13 +40,9 @@ export default function HomePage() {
     router.push('/login')
   }
 
-  const handleAssistantChange = (e) => {
-    const val = e.target.value
-    if (val === 'create_new') {
-      router.push('/assistants/new')
-      return
-    }
-    setSelectedId(val)
+  const handleAssistantChange = e => {
+    if (e.target.value === 'create_new') return router.push('/assistants/new')
+    setSelectedId(e.target.value)
   }
 
   return (
@@ -87,25 +51,16 @@ export default function HomePage() {
       <p className="text-muted small">Logged in as {email}</p>
 
       <div className="mb-4">
-        <button
-          className="btn btn-secondary me-2"
-          onClick={() => router.push('/profile')}
-        >
+        <button className="btn btn-secondary me-2" onClick={() => router.push('/profile')}>
           Go to Profile
         </button>
-        <button
-          className="btn btn-outline-danger"
-          onClick={handleSignOut}
-        >
+        <button className="btn btn-outline-danger" onClick={handleSignOut}>
           Sign Out
         </button>
       </div>
 
-      {/* Assistant Selector: always show */}
       <div className="mb-4">
-        <label htmlFor="assistantSelect" className="form-label">
-          Choose an assistant
-        </label>
+        <label htmlFor="assistantSelect" className="form-label">Choose an assistant</label>
         <select
           id="assistantSelect"
           className="form-select"
@@ -113,24 +68,16 @@ export default function HomePage() {
           onChange={handleAssistantChange}
           disabled={loading}
         >
-          <option value="">
-            Default (ChatGPT)
-          </option>
-          {assistants.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
+          <option value="">Default (ChatGPT)</option>
+          {assistants.map(a => (
+            <option key={a.id} value={a.id}>{a.name}</option>
           ))}
-          {assistants.length > 0 && (
-            <option disabled>──────────</option>
-          )}
-          <option value="create_new">
-            ➕ Create new assistant
-          </option>
+          {assistants.length > 0 && <option disabled>──────────</option>}
+          <option value="create_new">➕ Create new assistant</option>
         </select>
       </div>
 
-      {/* Chat UI: pass null for default */}
+      {/* Pass assistantId (or null) into ChatUI */}
       <ChatUI assistantId={selectedId || null} />
     </div>
   )
