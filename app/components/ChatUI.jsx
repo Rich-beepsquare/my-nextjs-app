@@ -1,4 +1,4 @@
-// components/ChatUI.jsx
+// app/components/ChatUI.jsx
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
@@ -8,82 +8,109 @@ import remarkGfm from 'remark-gfm'
 
 export default function ChatUI() {
   const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const bottomRef = useRef(null)
+  const [input, setInput]       = useState('')
+  const [loading, setLoading]   = useState(false)
+  const bottomRef               = useRef(null)
 
-  // 1) Load history
+  // Load chat history once on mount, then scroll to bottom whenever messages change
   useEffect(() => {
-    ;(async () => {
+    (async () => {
+      // 1) Get current user
+      const {
+        data: { user },
+        error: userErr
+      } = await supabase.auth.getUser()
+      if (userErr || !user) {
+        console.error('No user session', userErr)
+        return
+      }
+
+      // 2) Fetch all their messages, oldest → newest
       const { data, error } = await supabase
         .from('messages')
         .select('role, content, created_at')
+        .eq('user_id', user.id)              // <-- filter to this user
         .order('created_at', { ascending: true })
 
       if (error) {
         console.error('History load error:', error)
-        setMessages([{ role: 'assistant', content: 'Error loading history.' }])
+        setMessages([
+          { role: 'assistant', content: 'Error loading history.' }
+        ])
       } else if (data.length) {
-        setMessages(data.map((m) => ({ role: m.role, content: m.content })))
+        setMessages(
+          data.map(m => ({
+            role:    m.role,
+            content: m.content,
+            ts:      new Date(m.created_at)
+          }))
+        )
       } else {
         setMessages([
-          { role: 'assistant', content: 'Hello! How can I help you today?' },
+          {
+            role:    'assistant',
+            content: 'Hello! How can I help you today?',
+            ts:      new Date()
+          }
         ])
       }
     })()
   }, [])
 
-  // 2) Scroll to bottom on new message or loading state
+  // Scroll to bottom on each message update
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+  }, [messages])
 
-  // 3) Auto-resize textarea
-  const resize = (el) => {
+  // Auto-resize the textarea
+  const resize = el => {
     el.style.height = 'auto'
     el.style.height = el.scrollHeight + 'px'
   }
 
-  // 4) Send & receive
-  const handleSubmit = async (e) => {
+  const handleSubmit = async e => {
     e.preventDefault()
     const text = input.trim()
     if (!text) return
 
-    // Fetch current user
+    // 1) Grab user again and build new message
     const {
       data: { user },
-      error: userErr,
+      error: userErr
     } = await supabase.auth.getUser()
     if (userErr || !user) {
       console.error('No user session', userErr)
       return
     }
 
-    // Append user message
     const newMsgs = [
       ...messages,
-      { role: 'user', content: text, user_id: user.id },
+      { role: 'user', content: text, user_id: user.id, ts: new Date() }
     ]
     setMessages(newMsgs)
     setInput('')
     setLoading(true)
 
     try {
+      // 2) Send to your API
       const res = await fetch('/api/chat', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMsgs }),
+        body:    JSON.stringify({ messages: newMsgs })
       })
       if (!res.ok) throw new Error(`Status ${res.status}`)
 
+      // 3) Insert assistant reply into state
       const { message: assistantMsg } = await res.json()
-      setMessages((msgs) => [...msgs, assistantMsg])
+      setMessages([
+        ...newMsgs,
+        { ...assistantMsg, ts: new Date() }
+      ])
     } catch (err) {
       console.error('Chat error:', err)
-      setMessages((msgs) => [
-        ...msgs,
-        { role: 'assistant', content: 'Oops, something went wrong.' },
+      setMessages([
+        ...newMsgs,
+        { role: 'assistant', content: 'Oops, something went wrong.', ts: new Date() }
       ])
     } finally {
       setLoading(false)
@@ -93,9 +120,7 @@ export default function ChatUI() {
   return (
     <div className="chat-container d-flex flex-column">
       <div className="chat-header">AI Assistant</div>
-
-      {/* Chat messages */}
-      <div className="chat-body flex-grow-1 overflow-auto mb-3">
+      <div className="chat-body">
         {messages.map((m, i) => (
           <div key={i} className={`bubble ${m.role}`}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -103,57 +128,22 @@ export default function ChatUI() {
             </ReactMarkdown>
           </div>
         ))}
-
-        {/* Typing indicator bubble */}
-        {loading && (
-          <div className="bubble assistant typing d-flex align-items-center">
-            <div
-              className="spinner-border spinner-border-sm text-primary me-2"
-              role="status"
-            >
-              <span className="visually-hidden">Loading…</span>
-            </div>
-            <em>Typing…</em>
-          </div>
-        )}
-
         <div ref={bottomRef} />
       </div>
-
-      {/* Input form */}
       <form className="chat-input d-flex" onSubmit={handleSubmit}>
         <textarea
-          className="flex-grow-1 form-control"
-          placeholder="Type a message…"
+          className="flex-grow-1"
+          placeholder="Type a message..."
           value={input}
-          onChange={(e) => {
+          onChange={e => {
             setInput(e.target.value)
             resize(e.target)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              handleSubmit(e)
-            }
           }}
           disabled={loading}
           rows={1}
         />
-
-        <button
-          type="submit"
-          className="btn btn-primary ms-2"
-          disabled={loading}
-        >
-          {loading ? (
-            <span
-              className="spinner-border spinner-border-sm"
-              role="status"
-              aria-hidden="true"
-            />
-          ) : (
-            'Send'
-          )}
+        <button type="submit" className="btn btn-primary ms-2" disabled={loading}>
+          {loading ? '…' : 'Send'}
         </button>
       </form>
     </div>

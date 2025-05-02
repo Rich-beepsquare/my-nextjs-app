@@ -19,11 +19,11 @@ export async function POST(request) {
   try {
     const { messages: userMessages } = await request.json()
 
-    // 1) Prepend a system message that sets the assistant’s identity
+    // 1) Prepend a system message that sets the assistant’s identity and instructions
     const messages = [
       {
         role: 'system',
-        content: 'You are ChatGPT, a large language model running on GPT-4. When asked, always reply with “I am GPT-4…” to confirm your version.'
+        content: 'You are ChatGPT, a large language model running on GPT-4. When asked what version you are, always reply with “I am GPT-4…” to confirm your version.'
       },
       ...userMessages
     ]
@@ -42,8 +42,8 @@ export async function POST(request) {
       typeof assistant.content === 'string'
         ? assistant.content
         : Array.isArray(assistant.content?.parts)
-        ? assistant.content.parts.join('')
-        : ''
+          ? assistant.content.parts.join('')
+          : ''
 
     // 3) Persist both the user’s last message and assistant reply
     const userMsg = userMessages[userMessages.length - 1]

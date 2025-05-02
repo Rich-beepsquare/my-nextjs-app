@@ -1,30 +1,44 @@
+// app/SessionProvider.jsx
 'use client'
 
-import { useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
+
+const SessionContext = createContext({ session: null, user: null })
 
 export default function SessionProvider({ children }) {
+  const [session, setSession] = useState(null)
   const router = useRouter()
 
+  // on mount, grab the initial session
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        // Redirect to login if the session is null (user is logged out)
-        router.push('/login')
-      }
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
     })
 
-    // Cleanup the listener
-    return () => {
-      // Ensure cleanup is done correctly
-      if (listener && typeof listener.unsubscribe === 'function') {
-        listener.unsubscribe()
+    // subscribe to changes
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session)
+        if (!session) router.push('/login')
       }
-    }
+    )
+    return () => listener.subscription.unsubscribe()
   }, [router])
 
-  return <>{children}</>
+  return (
+    <SessionContext.Provider value={{ session, user: session?.user }}>
+      {children}
+    </SessionContext.Provider>
+  )
 }
 
-
+// the hook your pages call
+export function useSession() {
+  const ctx = useContext(SessionContext)
+  if (ctx === undefined) {
+    throw new Error('useSession must be used inside <SessionProvider>')
+  }
+  return ctx
+}

@@ -1,70 +1,130 @@
 // app/api/assistants/route.js
-import { NextResponse }      from 'next/server'
-import { supabaseServer }    from '@/lib/supabase-server'
+import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
 
-export const runtime = 'nodejs'
+/** 
+ * supabaseAdmin bypasses RLS (for org-stub + assistants insert)
+ */
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+)
 
-// GET /api/assistants?orgId=…
+/** 
+ * supabaseUser is only used to verify the JWT & pull user.id 
+ * (it still honors RLS, but we only read from auth.users here)
+ */
+function getSupabaseUserClient(token) {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      global: {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    }
+  )
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
   const orgId = searchParams.get('orgId')
   if (!orgId) {
-    return NextResponse.json({ error: 'orgId required' }, { status: 400 })
-  }
-
-  const { data, error } = await supabaseServer
-    .from('assistants')
-    .select('id, name, visibility, created_by, created_at')
-    .eq('org_id', orgId)
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    console.error('GET /api/assistants error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json(data)
-}
-
-// POST /api/assistants
-// body: { orgId, name, visibility, system_message }
-export async function POST(request) {
-  const body = await request.json()
-  const { orgId, name, visibility, system_message } = body
-
-  if (!orgId || !name || !visibility || !system_message) {
     return NextResponse.json(
-      { error: 'orgId, name, visibility & system_message are all required' },
+      { error: 'Missing orgId query parameter' },
       { status: 400 }
     )
   }
 
-  // pull the user ID from the Supabase JWT
-  // (Next.js passes the user’s token via the Authorization header automatically)
-  const userRes = await supabaseServer.auth.getUser()
-  const user = userRes.data.user
-  if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
-
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabaseAdmin
     .from('assistants')
-    .insert([
-      {
-        org_id:         orgId,
-        name,
-        visibility,
-        system_message,
-        created_by:    user.id,
-      },
-    ])
-    .select()
-    .single()
+    .select('*')
+    .eq('org_id', orgId)
 
   if (error) {
-    console.error('POST /api/assistants error:', error)
+    console.error('assistants fetch error', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json(data, { status: 201 })
+  return NextResponse.json({ assistants: data })
+}
+
+export async function POST(request) {
+  // 1) parse & validate the Bearer token
+  const authHeader = request.headers.get('authorization') || ''
+  const token = authHeader.replace(/^Bearer\s+/, '')
+  if (!token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // 2) look up the user
+  const supabaseUser = getSupabaseUserClient(token)
+  const {
+    data: { user },
+    error: userErr
+  } = await supabaseUser.auth.getUser()
+  if (userErr || !user) {
+    console.error('auth lookup error', userErr)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const creatorId = user.id
+
+  // 3) pull body
+  const { orgId, name, visibility, system_message } = await request.json()
+  if (!orgId || !name || !visibility || !system_message) {
+    return NextResponse.json(
+      { error: 'Missing required fields' },
+      { status: 400 }
+    )
+  }
+
+  // 4) ensure org exists (service role bypasses RLS)
+  const { data: org } = await supabaseAdmin
+    .from('organizations')
+    .select('id')
+    .eq('id', orgId)
+    .maybeSingle()
+
+  if (!org) {
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '')
+      .substring(0, 50)
+
+    const { error: createOrgErr } = await supabaseAdmin
+      .from('organizations')
+      .insert([{ id: orgId, name: slug, slug }])
+
+    if (createOrgErr) {
+      console.error('organization insert error', createOrgErr)
+      return NextResponse.json(
+        { error: createOrgErr.message },
+        { status: 500 }
+      )
+    }
+  }
+
+  // 5) insert assistant with creator_id
+  const { error: insertErr } = await supabaseAdmin
+    .from('assistants')
+    .insert([
+      {
+        org_id: orgId,
+        name,
+        visibility,
+        system_message,
+        creator_id: creatorId
+      }
+    ])
+
+  if (insertErr) {
+    console.error('assistants insert error', insertErr)
+    return NextResponse.json(
+      { error: insertErr.message },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({ success: true }, { status: 201 })
 }
