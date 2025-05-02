@@ -19,18 +19,19 @@ export default function HomePage() {
   const [loading, setLoading]       = useState(true)
 
   useEffect(() => {
-    ;(async () => {
-      // 1) load user session
+    async function load() {
+      // 1) get session (so we have the JWT)
       const {
-        data: { user },
-        error: userErr
-      } = await supabase.auth.getUser()
-      if (userErr || !user) {
+        data: { session },
+        error: sessionErr
+      } = await supabase.auth.getSession()
+      if (sessionErr || !session) {
         router.push('/login')
         return
       }
 
-      // pull out names/email
+      // 2) pull out name/email
+      const user = session.user
       const meta = user.user_metadata || {}
       const fn   = meta.first_name || ''
       const ln   = meta.last_name  || ''
@@ -39,20 +40,31 @@ export default function HomePage() {
         setFirstName(fn)
         setLastName(ln)
       } else if (em) {
-        // fallback: use beginning of email
         setFirstName(em.split('@')[0])
       }
       setEmail(em)
 
-      // 2) load assistants for this org
-      const orgId = meta.sub        // or however you store it
-      const res   = await fetch(`/api/assistants?orgId=${orgId}`)
-      if (res.ok) {
-        const { assistants } = await res.json()
-        setAssistants(Array.isArray(assistants) ? assistants : [])
+      // 3) fetch assistants with auth header
+      const orgId = meta.sub
+      const token = session.access_token
+      try {
+        const res = await fetch(`/api/assistants?orgId=${orgId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (res.ok) {
+          const json = await res.json()
+          setAssistants(Array.isArray(json.assistants) ? json.assistants : [])
+        } else {
+          console.error('assistants fetch failed', res.status)
+        }
+      } catch (err) {
+        console.error('assistants fetch error', err)
       }
+
       setLoading(false)
-    })()
+    }
+
+    load()
   }, [router])
 
   const handleSignOut = async () => {
