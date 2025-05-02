@@ -1,40 +1,23 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export default function NewAssistantPage() {
   const router = useRouter()
-
-  // 1. Session guard
-  const [checkingSession, setCheckingSession] = useState(true)
-  useEffect(() => {
-    ;(async () => {
-      const {
-        data: { session },
-        error: sessionErr
-      } = await supabase.auth.getSession()
-      setCheckingSession(false)
-      if (sessionErr || !session) {
-        router.push('/login')
-      }
-    })()
-  }, [router])
-
-  // 2. Form state
   const [name, setName] = useState('')
   const [visibility, setVisibility] = useState('private')
   const [systemMessage, setSystemMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // 3. Handle submit
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
+    // 1) get the current session (to extract the JWT)
     const {
       data: { session },
       error: sessionErr
@@ -46,6 +29,7 @@ export default function NewAssistantPage() {
     }
     const token = session.access_token
 
+    // 2) derive orgId (from your user_metadata.sub)
     const user = session.user
     const orgId = user.user_metadata.sub
     if (!orgId) {
@@ -54,6 +38,7 @@ export default function NewAssistantPage() {
       return
     }
 
+    // 3) call your API with the Bearer token
     const res = await fetch('/api/assistants', {
       method: 'POST',
       headers: {
@@ -75,15 +60,10 @@ export default function NewAssistantPage() {
       return
     }
 
+    // 4) on success, go home (or wherever)
     router.push('/')
   }
 
-  // 4. Show a quick loading state while we verify the session
-  if (checkingSession) {
-    return <div className="container py-5">Checking authentication…</div>
-  }
-
-  // 5. Render the form
   return (
     <div className="container py-5">
       <h1>Create New Assistant</h1>
@@ -132,5 +112,5 @@ export default function NewAssistantPage() {
         </button>
       </form>
     </div>
-  )
+)
 }
