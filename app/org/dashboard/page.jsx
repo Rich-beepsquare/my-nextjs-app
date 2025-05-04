@@ -1,28 +1,40 @@
-// File: app/org/dashboard/page.jsx
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter }           from 'next/navigation'
-import { supabase }            from '../../lib/supabase'
-import { useOrg }              from '../../OrgProvider'
+import { useRouter } from 'next/navigation'
+import { supabase } from '../../lib/supabase'
+import { useOrg } from '../../OrgProvider'
 
 export default function OrgDashboard() {
-  const router         = useRouter()
-  const orgId          = useOrg()
+  const router = useRouter()
+  const ctx    = useOrg()
+
+  // ─── H Y B R I D   O R G   C O N T E X T ─────────────────────────────
+
+  // if `ctx` is a string, assume it's the old orgId
+  // otherwise assume it's { org, loading, error }
+  const isObject = typeof ctx === 'object' && ctx !== null
+  const orgId     = isObject ? ctx.org?.id : ctx
+  const loading   = isObject ? ctx.loading : false
+  const error     = isObject ? ctx.error   : null
+
+  // ─── S T A T E   &   R O U T E R ──────────────────────────────────────
 
   const [orgName, setOrgName]             = useState('')
   const [members, setMembers]             = useState([])
   const [userRole, setUserRole]           = useState(null)
   const [currentUserId, setCurrentUserId] = useState(null)
 
-  // Invite form state
-  const [inviteEmail, setInviteEmail]     = useState('')
-  const [inviteRole, setInviteRole]       = useState('member')
-  const [inviteStatus, setInviteStatus]   = useState('')
+  // ─── 1) Fetch org name once we know orgId ──────────────────────────
 
-  // 1) Fetch org name
   useEffect(() => {
+    if (loading) return
+    if (error) {
+      console.error('Error loading org from context:', error)
+      return
+    }
     if (!orgId) return
+
     supabase
       .from('organizations')
       .select('name')
@@ -33,9 +45,10 @@ export default function OrgDashboard() {
         else if (data?.name) setOrgName(data.name)
         else console.warn('No organization record for id', orgId)
       })
-  }, [orgId])
+  }, [orgId, loading, error])
 
-  // 2) Fetch current user, my role & all members (+ their emails)
+  // ─── 2) Fetch my role + all members ─────────────────────────────────
+
   useEffect(() => {
     if (!orgId) return
 
@@ -92,7 +105,12 @@ export default function OrgDashboard() {
     })()
   }, [orgId, router])
 
-  // 3) Invite handler (admins only)
+  // ─── 3) Invite handler (admins only) ─────────────────────────────────
+
+  const [inviteEmail, setInviteEmail]   = useState('')
+  const [inviteRole, setInviteRole]     = useState('member')
+  const [inviteStatus, setInviteStatus] = useState('')
+
   const handleInvite = async (e) => {
     e.preventDefault()
     setInviteStatus('')
@@ -111,11 +129,16 @@ export default function OrgDashboard() {
     }
   }
 
-  // 4) Decide what to show
+  // ─── 4) Render loading / error states ───────────────────────────────
+
+  if (loading) return <p>Loading organization…</p>
+  if (error)   return <p className="text-danger">Error: {error.message}</p>
+  if (!orgId)  return <p>No organization found. Have you been invited?</p>
+
+  // ─── 5) Render the dashboard ───────────────────────────────────────
+
   const iAmMember = userRole === 'member'
   const title     = iAmMember ? 'Organisation Admin(s)' : 'Members'
-
-  // filter: members → admins-only & drop self when I'm a member
   const displayed = iAmMember
     ? members.filter((m) => m.role === 'admin' && m.user_id !== currentUserId)
     : members
@@ -150,10 +173,7 @@ export default function OrgDashboard() {
       {userRole === 'admin' && (
         <div className="mt-5">
           <h5>Invite New Member</h5>
-          <form
-            className="row g-2 align-items-center"
-            onSubmit={handleInvite}
-          >
+          <form className="row g-2 align-items-center" onSubmit={handleInvite}>
             <div className="col-auto">
               <input
                 type="email"
