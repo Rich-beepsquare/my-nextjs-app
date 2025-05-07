@@ -34,7 +34,8 @@ export default function MyDocuments() {
       const userId = await getUserId()
       const { data, error: uploadsErr } = await supabase
         .from('uploads')
-        .select('id, file_name, file_url, file_type, uploaded_at')
+        .select('id, file_name, file_url, file_type, uploaded_at, snippet')
+
         .eq('user_id', userId)
         .order('uploaded_at', { ascending: false })
 
@@ -61,34 +62,52 @@ export default function MyDocuments() {
     if (!fileInput) return
     setUploading(true)
     setUploadError(null)
-
+  
     try {
       const userId = await getUserId()
       const filePath = `${userId}/${Date.now()}_${fileInput.name}`
-
+  
+      // 1. Upload file to Supabase Storage
       const { error: storageErr } = await supabase.storage
         .from(bucket)
         .upload(filePath, fileInput, { cacheControl: '3600', upsert: false })
-
+  
       if (storageErr) throw storageErr
-
-      const { data: urlData, error: urlErr } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(filePath)
-      if (urlErr) throw urlErr
-
-      const { error: insertErr } = await supabase
+  
+      // 2. Insert metadata into `uploads` table
+      const { data: insertData, error: insertErr } = await supabase
         .from('uploads')
         .insert({
           user_id: userId,
           file_name: fileInput.name,
-          file_url: filePath, // Save storage path instead of public URL
+          file_url: filePath, // storing just the storage key
           file_type: fileInput.type,
           uploaded_at: new Date().toISOString(),
         })
-
+        .select('id') // we need the new row’s ID for snippet update
+  
       if (insertErr) throw insertErr
-
+  
+      const uploadId = insertData?.[0]?.id
+      if (!uploadId) throw new Error('Missing upload ID after insert')
+  
+      // 3. Call API route to extract text and save snippet
+      const response = await fetch('/api/extract-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filePath,
+          fileType: fileInput.type,
+          uploadId,
+        }),
+      })
+  
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Text extraction failed')
+      }
+  
+      // 4. Refresh list
       setFileInput(null)
       fetchUploads()
     } catch (err) {
@@ -98,6 +117,7 @@ export default function MyDocuments() {
       setUploading(false)
     }
   }
+  
 
   const handleDownload = async (filePath) => {
     try {
