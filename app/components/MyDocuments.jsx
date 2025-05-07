@@ -1,46 +1,41 @@
-// app/components/MyDocuments.jsx
 'use client'
 
 import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Table, Button, Modal, Spinner } from 'react-bootstrap'
+import { Table, Button, Modal, Spinner, Form } from 'react-bootstrap'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 
 export default function MyDocuments() {
-  const [uploads, setUploads]       = useState([])
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState(null)
+  const [uploads, setUploads] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState(null)
+  const [fileInput, setFileInput] = useState(null)
 
   const [showPreview, setShowPreview] = useState(false)
   const [previewFile, setPreviewFile] = useState(null)
-  const [showDelete, setShowDelete]   = useState(false)
-  const [deleteFile, setDeleteFile]   = useState(null)
+  const [showDelete, setShowDelete] = useState(false)
+  const [deleteFile, setDeleteFile] = useState(null)
 
-  // 1) Fetch the user’s uploads
+  const bucket = 'user-uploads'
+
+  const getUserId = async () => {
+    const { data: { user }, error } = await supabase.auth.getUser()
+    if (error || !user) throw error || new Error('No user session')
+    return user.id
+  }
+
   const fetchUploads = async () => {
     setLoading(true)
     setError(null)
     try {
-      const {
-        data: { session },
-        error: sessionErr
-      } = await supabase.auth.getSession()
-      if (sessionErr || !session?.user) {
-        throw new Error(sessionErr?.message || 'No active session')
-      }
-      const user = session.user
-
+      const userId = await getUserId()
       const { data, error: uploadsErr } = await supabase
         .from('uploads')
-        .select(`
-          id,
-          file_name,
-          file_url,
-          file_type,
-          uploaded_at
-        `)
-        .eq('user_id', user.id)
+        .select('id, file_name, file_url, file_type, uploaded_at')
+        .eq('user_id', userId)
         .order('uploaded_at', { ascending: false })
 
       if (uploadsErr) throw uploadsErr
@@ -53,22 +48,80 @@ export default function MyDocuments() {
     }
   }
 
-  // 2) Run on mount
   useEffect(() => {
     fetchUploads()
   }, [])
 
-  // Preview handlers
+  const handleFileChange = (e) => {
+    setFileInput(e.target.files?.[0] || null)
+    setUploadError(null)
+  }
+
+  const handleUpload = async () => {
+    if (!fileInput) return
+    setUploading(true)
+    setUploadError(null)
+
+    try {
+      const userId = await getUserId()
+      const filePath = `${userId}/${Date.now()}_${fileInput.name}`
+
+      const { error: storageErr } = await supabase.storage
+        .from(bucket)
+        .upload(filePath, fileInput, { cacheControl: '3600', upsert: false })
+
+      if (storageErr) throw storageErr
+
+      const { data: urlData, error: urlErr } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(filePath)
+      if (urlErr) throw urlErr
+
+      const { error: insertErr } = await supabase
+        .from('uploads')
+        .insert({
+          user_id: userId,
+          file_name: fileInput.name,
+          file_url: filePath, // Save storage path instead of public URL
+          file_type: fileInput.type,
+          uploaded_at: new Date().toISOString(),
+        })
+
+      if (insertErr) throw insertErr
+
+      setFileInput(null)
+      fetchUploads()
+    } catch (err) {
+      console.error('Error uploading file →', err.message || err)
+      setUploadError(err)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleDownload = async (filePath) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(filePath, 60) // 60-second link
+      if (error) throw error
+      window.open(data.signedUrl, '_blank')
+    } catch (err) {
+      alert('Failed to download file')
+      console.error('Download error →', err.message || err)
+    }
+  }
+
   const handlePreview = (file) => {
     setPreviewFile(file)
     setShowPreview(true)
   }
 
-  // Delete handlers
   const handleDeleteConfirm = (file) => {
     setDeleteFile(file)
     setShowDelete(true)
   }
+
   const handleDelete = async () => {
     if (!deleteFile) return
     try {
@@ -78,7 +131,6 @@ export default function MyDocuments() {
         .eq('id', deleteFile.id)
       if (delErr) throw delErr
       setShowDelete(false)
-      setDeleteFile(null)
       fetchUploads()
     } catch (err) {
       console.error('Error deleting upload →', err.message || err)
@@ -89,6 +141,22 @@ export default function MyDocuments() {
   return (
     <div className="container my-4">
       <h2 className="mb-4">My Documents</h2>
+
+      <div className="mb-3 d-flex align-items-center">
+        <Form.Control
+          type="file"
+          onChange={handleFileChange}
+          disabled={uploading}
+        />
+        <Button className="ms-2" disabled={!fileInput || uploading} onClick={handleUpload}>
+          {uploading ? 'Uploading…' : 'Upload'}
+        </Button>
+      </div>
+      {uploadError && (
+        <div className="text-danger mb-3">
+          Error uploading file: {uploadError.message || String(uploadError)}
+        </div>
+      )}
 
       {loading ? (
         <Spinner animation="border" />
@@ -122,19 +190,17 @@ export default function MyDocuments() {
                 </td>
                 <td>{new Date(file.uploaded_at).toLocaleString()}</td>
                 <td className="text-capitalize">
-                  {file.file_type
-                    ? file.file_type.replace('application/', '')
-                    : 'unknown'}
+                  {file.file_type?.split('/')[1] || 'unknown'}
                 </td>
                 <td className="text-end">
-                  <a
-                    href={file.file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-sm btn-outline-primary me-1"
+                  <Button
+                    variant="outline-primary"
+                    size="sm"
+                    className="me-1"
+                    onClick={() => handleDownload(file.file_url)}
                   >
                     <i className="bi bi-download" />
-                  </a>
+                  </Button>
                   <Button
                     variant="outline-info"
                     size="sm"
@@ -163,17 +229,16 @@ export default function MyDocuments() {
           <Modal.Title>Document Snippet Preview</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          {previewFile && (
+          {previewFile ? (
             <>
               <p>
                 <strong>Excerpt from {previewFile.file_name}:</strong>
               </p>
               <blockquote className="border-start ps-3 fst-italic">
-                {/* placeholder until you wire up RAG */}
-                “No snippet available.”
+                {previewFile.snippet || '“No snippet available.”'}
               </blockquote>
             </>
-          )}
+          ) : null}
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setShowPreview(false)}>
@@ -182,7 +247,7 @@ export default function MyDocuments() {
         </Modal.Footer>
       </Modal>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Modal */}
       <Modal show={showDelete} onHide={() => setShowDelete(false)}>
         <Modal.Header closeButton>
           <Modal.Title>Confirm Delete</Modal.Title>
@@ -203,4 +268,3 @@ export default function MyDocuments() {
     </div>
   )
 }
-
