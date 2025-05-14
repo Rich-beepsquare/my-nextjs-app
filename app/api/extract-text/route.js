@@ -6,31 +6,43 @@ import os from 'os'
 import * as pdfParse from 'pdf-parse/lib/pdf-parse.js'
 import mammoth from 'mammoth'
 
+// Helper to split text into ~500-character chunks
+function chunkText(text, size = 500) {
+  const chunks = []
+  let i = 0
+  while (i < text.length) {
+    chunks.push(text.slice(i, i + size))
+    i += size
+  }
+  return chunks
+}
+
 export async function POST(req) {
   const { filePath, fileType, uploadId } = await req.json()
   const bucket = 'user-uploads'
 
-  console.log('Requested filePath →', filePath)
-
   try {
-    // 1. Download file from Supabase Storage
+    // Get user ID from upload row
+    const { data: uploadRow, error: fetchUploadErr } = await supabase
+      .from('uploads')
+      .select('user_id')
+      .eq('id', uploadId)
+      .single()
+    if (fetchUploadErr) throw new Error(fetchUploadErr.message)
+    const userId = uploadRow.user_id
+
+    // 1. Download from Supabase Storage
     const { data: fileData, error: downloadErr } = await supabase
       .storage
       .from(bucket)
       .download(filePath)
+    if (downloadErr) throw new Error(downloadErr.message || 'Download failed')
 
-    console.log('Download result →', { fileData, downloadErr })
-
-    if (downloadErr) {
-      throw new Error(downloadErr.message || 'Download failed')
-    }
-
-    // 2. Write to a temporary file on disk
     const tempFilePath = path.join(os.tmpdir(), path.basename(filePath))
     const buffer = await fileData.arrayBuffer()
     await fs.writeFile(tempFilePath, Buffer.from(buffer))
 
-    // 3. Extract text from PDF or DOCX
+    // 2. Extract text
     let extractedText = ''
     if (fileType === 'application/pdf') {
       const pdfBuffer = await fs.readFile(tempFilePath)
@@ -46,17 +58,32 @@ export async function POST(req) {
       throw new Error('Unsupported file type')
     }
 
-    // 4. Update uploads table with extracted snippet
+    // 3. Save snippet (first 500 chars)
     const { error: updateErr } = await supabase
       .from('uploads')
       .update({ snippet: extractedText.slice(0, 500) })
       .eq('id', uploadId)
+    if (updateErr) throw new Error(updateErr.message)
 
-    if (updateErr) {
-      throw new Error(updateErr.message)
-    }
+    // 4. Save full content as chunks
+    const chunks = chunkText(extractedText, 500)
+    const chunkInserts = chunks.map((chunk, index) => ({
+      upload_id: uploadId,
+      user_id: userId,
+      chunk_index: index,
+      content: chunk,
+    }))
 
-    return NextResponse.json({ success: true, chars: extractedText.length })
+    const { error: chunkErr } = await supabase
+      .from('document_chunks')
+      .insert(chunkInserts)
+    if (chunkErr) throw new Error(chunkErr.message)
+
+    return NextResponse.json({
+      success: true,
+      chars: extractedText.length,
+      chunks: chunkInserts.length,
+    })
   } catch (err) {
     console.error('Extraction error →', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
